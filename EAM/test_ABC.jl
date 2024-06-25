@@ -413,7 +413,7 @@ end
 
 simulator = ABCSimulator(sigma=1e-1*u"nm", W=1e2*u"eV", max_steps=500, max_steps_minimize=100, step_size_minimize=0.01u"nm", tol=5e-13u"kg*m*s^-2")
 # Run the simulation
-"simulate" simulate!(molly_system, simulator)
+simulate!(molly_system, simulator)
 
 # # simulation cell after energy minimization
 atoms_ase_sim = convert_ase_custom(molly_system)
