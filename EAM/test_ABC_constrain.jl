@@ -399,7 +399,7 @@ function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads()
         # 2. Slightly perturb the system coordinates
         for i in 1:length(sys.coords)
             random_direction = randn(size(sys.coords[i]))
-            sys.coords[i] += 1e-6*u"nm" * random_direction*d_multiplier[i]
+            sys.coords[i] += 1e-4*u"nm" * random_direction*d_multiplier[i]
         end
 
         # 3. Call Minimize! with penalty_coords, update system coordinates
@@ -415,7 +415,7 @@ function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads()
         println(sim.log_stream, "Step 0 - potential energy ",
                 E, " - max force N/A - N/A")
         open(fname, "a") do file
-            write(file, string(ustrip(E))*"\n")
+            write(file, string(ustrip(E))*" "*string(ustrip(f_phi_p(sys.coords, penalty_coords, sim.sigma, sim.W)))*"\n")
         end
 
         # Update penalty_coords for the next step
@@ -441,7 +441,7 @@ print("\n")
 z_coords = [coords[3] for coords in molly_system.coords]
 frozen_atoms = [index for (index, z_coord) in enumerate(z_coords) if z_coord < al_LatConst*2.9*0.1*u"nm"]
 
-simulator = ABCSimulator(sigma=5e-2*u"nm", W=2e-1*u"eV", max_steps=500, max_steps_minimize=60, step_size_minimize=1e-3u"nm", tol=1e-12u"kg*m*s^-2")
+simulator = ABCSimulator(sigma=1e-1*u"nm", W=2e-1*u"eV", max_steps=1000, max_steps_minimize=60, step_size_minimize=1e-3u"nm", tol=1e-12u"kg*m*s^-2")
 # Run the simulation
 simulate!(molly_system, simulator, fname="output_constrain.txt", frozen_atoms=frozen_atoms)
 
