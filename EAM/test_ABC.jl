@@ -1,8 +1,25 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .jl
+#       format_name: light
+#       format_version: '1.5'
+#       jupytext_version: 1.16.2
+#   kernelspec:
+#     display_name: Julia 1.10.4
+#     language: julia
+#     name: julia-1.10
+# ---
+
+# +
 cd(@__DIR__)
 
 using Pkg
 Pkg.activate(".")
 
+using Printf
 using AtomsCalculators
 using ASEconvert # use this PR:https://github.com/mfherbst/ASEconvert.jl/pull/17, Pkg.add(url="https://github.com/tjjarvinen/ASEconvert.jl.git", rev="atomscalculators")
 using Unitful: Å, nm
@@ -19,8 +36,11 @@ using Molly
 using Zygote
 using LinearAlgebra
 
-# ---
-## Define interaction
+# -
+
+# ## Define interaction
+
+# +
 ## 1. Import ASE and other Python modules
 # Import ASE and other Python modules as needed
 ase = pyimport("ase")
@@ -149,54 +169,61 @@ function AtomsCalculators.forces(system::Molly.System, interaction::EAMInteracti
 
     return tmp3
 end
+# -
 
-# ---
-## Create Molly system
+# ## Create Molly system
+
+# +
 ## 3. Build an aluminum surface with adsorbate
 al_LatConst = 4.0495
 atom_mass = 26.9815u"u"  # Atomic mass of aluminum in grams per mole
 
-# Build an (001) Al surface  
-atoms_ase = ase.build.fcc100("Al", size=(5,5,4), vacuum = al_LatConst*2)
-# The basis vectors on x and y are along 1/2<110> directions
-ase.build.add_adsorbate(atoms_ase, "Al", al_LatConst/2, position=(al_LatConst*(2.5*sqrt(1/2)/2),al_LatConst*(2.5*sqrt(1/2)/2)))
-# ase.build.add_adsorbate(atoms_ase, "Al", al_LatConst/2, "bridge")
+function system_adatom(size)
 
-atoms_ase.translate([al_LatConst*(sqrt(1/2)/4),al_LatConst*(sqrt(1/2)/4),0])
-atoms_ase.wrap()
+    # Build an (001) Al surface  
+    atoms_ase = ase.build.fcc100("Al", size=size, vacuum = al_LatConst*2)
+    # The basis vectors on x and y are along 1/2<110> directions
+    ase.build.add_adsorbate(atoms_ase, "Al", al_LatConst/2, position=(al_LatConst*(2.5*sqrt(1/2)/2),al_LatConst*(2.5*sqrt(1/2)/2)))
+    # ase.build.add_adsorbate(atoms_ase, "Al", al_LatConst/2, "bridge")
 
-atoms_ase_cell = atoms_ase.get_cell()
-box_size = pyconvert(Array{Float64}, [atoms_ase_cell[x,x] for x in range(0,2)])*0.1*u"nm"
+    atoms_ase.translate([al_LatConst*(sqrt(1/2)/4),al_LatConst*(sqrt(1/2)/4),0])
+    atoms_ase.wrap()
 
-# Build an Julia AtomsBase abstract 
-atoms_ab = pyconvert(AbstractSystem, atoms_ase)
+    atoms_ase_cell = atoms_ase.get_cell()
+    box_size = pyconvert(Array{Float64}, [atoms_ase_cell[x,x] for x in range(0,2)])*0.1*u"nm"
 
+    # Build an Julia AtomsBase abstract 
+    atoms_ab = pyconvert(AbstractSystem, atoms_ase)
+
+    ## 4. Create Molly system
+    ### 4.1 Convert atom positions to Molly's expected format (nanometers) and create Molly.Atom objects
+    # Get atom positions from previously defined ASE system
+    function get_positions(atoms_ase)
+        positions = [(atom.position[1], atom.position[2], atom.position[3]) for atom in atoms_ase]
+        return positions
+    end
+
+    # Convert each position from Ångströms to nanometers and ensure the conversion is applied element-wise.
+    atom_positions = [SVector(uconvert(nm, pos[1]), 
+        uconvert(nm, pos[2]), uconvert(nm, pos[3])) for pos in get_positions(atoms_ab)]
+
+    molly_atoms = [Molly.Atom(index=i, charge=0, mass=atom_mass, 
+                            #   σ=2.0u"Å" |> x -> uconvert(u"nm", x), ϵ=ϵ_kJ_per_mol
+                            ) for i in 1:length(atom_positions)]
+    return molly_atoms, atoms_ab, box_size, atom_positions
+end
+# -
+
+# ## Initialize simulation
+
+# ### Initialize System
+
+# +
+molly_atoms, atoms_ab, box_size, atom_positions = system_adatom((4,4,6))
+
+# interactions
 # EAMInteraction with the ASE EAM calculator and system representation
 eam_interaction = EAMInteraction(eam_cal, atoms_ab)
-
-## 4. Create Molly system
-### 4.1 Convert atom positions to Molly's expected format (nanometers) and create Molly.Atom objects
-# Get atom positions from previously defined ASE system
-function get_positions(atoms_ase)
-    positions = [(atom.position[1], atom.position[2], atom.position[3]) for atom in atoms_ase]
-    return positions
-end
-
-# Convert each position from Ångströms to nanometers and ensure the conversion is applied element-wise.
-atom_positions = [SVector(uconvert(nm, pos[1]), 
-    uconvert(nm, pos[2]), uconvert(nm, pos[3])) for pos in get_positions(atoms_ab)]
-
-molly_atoms = [Molly.Atom(index=i, charge=0, mass=atom_mass, 
-                        #   σ=2.0u"Å" |> x -> uconvert(u"nm", x), ϵ=ϵ_kJ_per_mol
-                          ) for i in 1:length(atom_positions)]
-
-# ---
-## Initialize simulation
-### Initialize System
-# Prepare velocities for Molly
-# Assuming you've defined temperatures and want to initialize random velocities
-temperatures = 0.0u"K"  # Example temperature
-molly_velocities = [Molly.random_velocity(atom_mass, temperatures) for _ in molly_atoms]
 
 # Specify boundary condition
 boundary_condition = Molly.CubicBoundary(box_size[1],box_size[2],box_size[3])
@@ -206,7 +233,6 @@ molly_system = Molly.System(
     atoms=molly_atoms,
     atoms_data = [AtomData(element="Al") for a in molly_atoms],
     coords=atom_positions,  # Ensure these are SVector with correct units
-    velocities=molly_velocities,
     boundary=boundary_condition,
     general_inters=[eam_interaction],  # This needs to be filled with actual interaction objects compatible with Molly
     # loggers=Dict(:kinetic_eng => Molly.KineticEnergyLogger(100), :pot_eng => Molly.PotentialEnergyLogger(100)),
@@ -216,24 +242,26 @@ molly_system = Molly.System(
     )
 
 atom_positions_init = copy(atom_positions)
-function initialize_system()
+function initialize_system(loggers=(coords=CoordinateLogger(1),))
     # Initialize the system with the initial positions and velocities
     system_init = Molly.System(
     atoms=molly_atoms,
     atoms_data = [AtomData(element="Al") for a in molly_atoms],
     coords=atom_positions_init,  # Ensure these are SVector with correct units
-    velocities=molly_velocities,
     boundary=boundary_condition,
     general_inters=[eam_interaction],  # This needs to be filled with actual interaction objects compatible with Molly
     # loggers=Dict(:kinetic_eng => Molly.KineticEnergyLogger(100), :pot_eng => Molly.PotentialEnergyLogger(100)),
-    loggers=(coords=CoordinateLogger(1),),
+    loggers=loggers,
     energy_units=u"eV",  # Ensure these units are correctly specified
     force_units=u"eV/nm"  # Ensure these units are correctly specified
     )
     return system_init
 end
+# -
 
-### Define ABCSimulator
+# ### Define ABCSimulator
+
+# +
 # Define the ABCSimulator structure
 struct ABCSimulator{S,W,D,F,L}
     """
@@ -259,16 +287,20 @@ function ABCSimulator(;
 end
 
 # Penalty function with Gaussuan form
-function f_phi_p(x, x_0, sigma, W)
+function f_phi_p(x, x_0, sigma, W, pbc=nothing)
     """
     Returns a penalty function of system coordinate x with Gaussuan form
     x:      System coordinate
     x_0:    Reference system coordinate
-    sigma:  Spatial extent of the activation
-    W:      Strenth of activation
+    sigma:  Spatial extent of the activation, per sqrt(degree of freedom)
+    W:      Strenth of activation, per degree of freedom
+    pbc:    Periodic boundary conditions
     """
+    N = length(x)
+    
+    sigma2_new = sigma^2*3*N
     EDSQ = (A, B) -> sum(sum(map(x -> x.^2, A-B)))
-    phi_p = sum([W * exp(-EDSQ(x,c) / (2*sigma^2)) for c in x_0])
+    phi_p = sum([W * exp(-EDSQ(x,c) / (2*sigma2_new)) for c in x_0])
     return phi_p
 end
 
@@ -284,7 +316,7 @@ function penalty_forces(sys, penalty_coords, sigma, W)
 end
 
 # Define the forces function with penalty term
-function forces_p(sys::System, penalty_coords, sigma, W, neighbors;
+function Molly.forces(sys::System, penalty_coords, sigma, W, neighbors;
     n_threads::Integer=Threads.nthreads()) 
     """
     Evaluate the forces acting on the system with penalty term
@@ -302,65 +334,93 @@ function forces_p(sys::System, penalty_coords, sigma, W, neighbors;
     return fs
 end
 
-# Define the Minimize! function
-function Minimize!(sys, sim, penalty_coords; n_threads::Integer)
-    sys.coords = wrap_coords.(sys.coords, (sys.boundary,))
+# Define the Minimize! function, on the basis of the Molly SteepestDescentMinimizer
+function Minimize!(sys, sim, penalty_coords; n_threads::Integer, frozen_atoms=[])
     neighbors = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
     using_constraints = length(sys.constraints) > 0
     hn = sim.step_size_minimize
-    E = potential_energy(sys, neighbors; n_threads=n_threads)
+    E_phi = 0*u"eV"
+    if penalty_coords!=nothing
+        E_phi += f_phi_p(sys.coords, penalty_coords, sim.sigma, sim.W)
+    end
+    E = potential_energy(sys, neighbors; n_threads=n_threads) + E_phi
     
-    # if penalty_coords != nothing
-    #     print(length(penalty_coords))
-    #     print("\n")
-    # end
+    # Set F_multiplier of frozen_atoms to zero
+    F_multiplier = ones(length(sys.coords))
+
+    for atom in frozen_atoms
+        F_multiplier[atom] = 0
+    end
 
     for step_n in 1:sim.max_steps_minimize
         # Calculate the forces using the new forces function
         # penalty_coords is fixed throughout the minimization
-        F = forces_p(sys, penalty_coords, sim.sigma, sim.W, neighbors; n_threads=1)
+        F = forces(sys, penalty_coords, sim.sigma, sim.W, neighbors; n_threads=1)
+        F = F.*F_multiplier
         max_force = maximum(norm.(F))
-
+        
         coords_copy = sys.coords
         sys.coords += hn * F ./ max_force
         using_constraints && apply_position_constraints!(sys, coords_copy; n_threads=n_threads)
-        sys.coords = wrap_coords.(sys.coords, (sys.boundary,))
 
         neighbors_copy = neighbors
         
-        E_trial = potential_energy(sys, neighbors; n_threads=n_threads)
+        # System energy after applying displacements in this step
+        E_phi = 0*u"eV"
+        if penalty_coords!=nothing
+            E_phi += f_phi_p(sys.coords, penalty_coords, sim.sigma, sim.W)
+        end
+
+        E_trial = potential_energy(sys, neighbors; n_threads=n_threads) + E_phi
         if E_trial < E
             hn = 6 * hn / 5
             E = E_trial
-            println(sim.log_stream, "Step ", step_n, " - potential energy ",
-                    E_trial, " - max force ", max_force, " - accepted")
+            # println(sim.log_stream, "Step ", step_n, " - potential energy ",
+            #         E_trial, " - max force ", max_force, " - accepted")
         else
             sys.coords = coords_copy
             neighbors = neighbors_copy
             hn = hn / 5
-            println(sim.log_stream, "Step ", step_n, " - potential energy ",
-                    E_trial, " - max force ", max_force, " - rejected")
+            # println(sim.log_stream, "Step ", step_n, " - potential energy ",
+            #         E_trial, " - max force ", max_force, " - rejected")
         end
 
         if max_force < sim.tol
             break
         end
     end
-    
+    F = forces(sys, penalty_coords, sim.sigma, sim.W, neighbors; n_threads=1)
+    F = F.*F_multiplier
+    max_force = maximum(norm.(F))
+    @printf("max force = %e N ",ustrip(max_force))
     return sys
 end
 
 # Implement the simulate! function for ABCSimulator
-function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), run_loggers=true)
-    sys.coords = wrap_coords.(sys.coords, (sys.boundary,))
+function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
+    # Do not wrap the coordinates
     neighbors = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
 
+    # open an empty output file
+    open(fname, "w") do file
+        write(file, "")
+    end
+
+    # Set d_multiplier of frozen_atoms to zero
+    d_multiplier = ones(length(sys.coords))
+    for atom in frozen_atoms
+        d_multiplier[atom] = 0
+    end
+
     # 0. Call Minimize! without penalty_coords before the loop
-    Minimize!(sys, sim, nothing; n_threads=n_threads)
+    Minimize!(sys, sim, nothing; n_threads=n_threads, frozen_atoms=frozen_atoms)
     E = potential_energy(sys, neighbors; n_threads=n_threads)
+
+    # Run the loggers, Log the step number (or other details as needed)
     run_loggers!(sys, neighbors, 0, run_loggers; n_threads=n_threads)
-    println(sim.log_stream, "Step 0 - potential energy ",
-                E, " - max force N/A - N/A")
+    @printf("step %d: ",0)
+    print(E)
+    print("\n")
 
     # 1. Store the initial coordinates
     penalty_coords = [copy(sys.coords)]  
@@ -369,55 +429,68 @@ function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads()
         # 2. Slightly perturb the system coordinates
         for i in 1:length(sys.coords)
             random_direction = randn(size(sys.coords[i]))
-            sys.coords[i] += 1.6e-3*u"nm" * random_direction
+            sys.coords[i] += 1e-4*u"nm" * random_direction*d_multiplier[i]
         end
 
         # 3. Call Minimize! with penalty_coords, update system coordinates
-        Minimize!(sys, sim, penalty_coords; n_threads=n_threads)
+        Minimize!(sys, sim, penalty_coords; n_threads=n_threads, frozen_atoms=frozen_atoms)
         E = potential_energy(sys, neighbors; n_threads=n_threads)
+        @printf("step %d: ",step_n)
         print(E)
         print("\n")
-        
-        # Log the step number (or other details as needed)
-        # Run the loggers
+
+        # Run the loggers, Log the step number (or other details as needed)
         run_loggers!(sys, neighbors, step_n, run_loggers; n_threads=n_threads)
         println(sim.log_stream, "Step 0 - potential energy ",
                 E, " - max force N/A - N/A")
-        open("output.txt", "a") do file
-            write(file, string(ustrip(E))*"\n")
+        E_phi = f_phi_p(sys.coords, penalty_coords, sim.sigma, sim.W)
+        open(fname, "a") do file
+            write(file, string(ustrip(E))*" "*string(ustrip(E_phi))*"\n")
         end
 
-        # Update penalty_coords for the next step
+        # 4. Update penalty_coords for the next step
         push!(penalty_coords, copy(sys.coords))
     end
     return sys
 end
+# -
 
-# ---
-## Update System with ABCSimulator
+# ## Update System with ABCSimulator
+
+# +
 molly_system = initialize_system()
 
 # Start from an energy minimum
 # tol: the default value was 1000 kJ/mol/nm ~= 9.6e13 eV/m ~= 1.5e-5 J/M
-simulator = SteepestDescentMinimizer(step_size=0.01u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
-# Run the simulation
+simulator = SteepestDescentMinimizer(step_size=1e-3u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
 Molly.simulate!(molly_system, simulator)
-
 atoms_ase_sim = convert_ase_custom(molly_system)
 print(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal))
-ase_view.view(atoms_ase_sim, viewer="x3d")
+print("\n")
+# -
 
-open("output.txt", "w") do file
-    write(file, "")
-end
+# ### Specify the atoms to be frozen
 
-simulator = ABCSimulator(sigma=1e-1*u"nm", W=1e2*u"eV", max_steps=500, max_steps_minimize=100, step_size_minimize=0.01u"nm", tol=5e-13u"kg*m*s^-2")
+z_coords = [coords[3] for coords in molly_system.coords]
+frozen_atoms = [index for (index, z_coord) in enumerate(z_coords) if z_coord < al_LatConst*2.9*0.1*u"nm"]
+print(length(frozen_atoms))
+
+# ### Run ABCSimulator
+
+# +
+sigma = 2e-3
+W = 0.1
+@printf("sigma = %e nm/dof^1/2\n W = %e eV",ustrip(sigma),ustrip(W))
+
+simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=100, max_steps_minimize=60, step_size_minimize=1.5e-3u"nm", tol=1e-12u"kg*m*s^-2")
 # Run the simulation
-simulate!(molly_system, simulator)
+print("\n")
+simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
 
 # # simulation cell after energy minimization
 atoms_ase_sim = convert_ase_custom(molly_system)
 ase_view.view(atoms_ase_sim, viewer="x3d")
+# -
 
 ## visualize
 using GLMakie
@@ -427,4 +500,41 @@ colors = []
 for (index, value) in enumerate(molly_system.coords)
     push!(colors, index < length(molly_system.coords) ? color_0 : color_1)
 end
-visualize(molly_system.loggers.coords, boundary_condition, "sim.mp4", markersize=0.1, color=colors)
+visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
+
+# +
+# # Start from an energy minimum
+# # tol: the default value was 1000 kJ/mol/nm ~= 9.6e13 eV/m ~= 1.5e-5 J/M
+# simulator = SteepestDescentMinimizer(step_size=0.01u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
+# # Run the simulation
+# Molly.simulate!(molly_system, simulator)
+
+# atoms_ase_sim = convert_ase_custom(molly_system)
+# print(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal))
+# ase_view.view(atoms_ase_sim, viewer="x3d")
+
+# +
+# molly_system = initialize_system()
+# simulator = SteepestDescentMinimizer(step_size=0.01u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
+# Molly.simulate!(molly_system, simulator)
+# neighbors = find_neighbors(molly_system, molly_system.neighbor_finder; n_threads=1)
+# fs = forces(molly_system, neighbors; n_threads=1)
+# print(maximum(norm.(fs)))
+# print("\n")
+
+# coords = copy(molly_system.coords)
+# penalty_coords = [coords]
+
+
+# for i in 1:length(coords)
+#     random_direction = randn(size(coords[i]))
+#     molly_system.coords[i] += 1e-5*u"nm" * random_direction
+# end
+
+
+# sigma=1e-1*u"nm"
+# W=1e2*u"eV"
+# fs = forces(molly_system, neighbors; n_threads=1)
+# print(maximum(norm.(fs)))
+# print("\n")
+# print(u"kg*m*s^-2"(maximum(norm.(penalty_forces(molly_system, penalty_coords, sigma, W)))))
