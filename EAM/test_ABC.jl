@@ -13,6 +13,13 @@
 #     name: julia-1.10
 # ---
 
+# This file contains code for testing the EAM (Embedded Atom Method) potential in Julia using the Molly package.
+# The code sets up an aluminum surface with an adsorbate and initializes a Molly system.
+# It defines a customized interaction type for the EAM potential and calculates potential energy and forces using the ASE EAM calculator.
+# The code also includes functions for converting between Molly and ASE formats, as well as initializing the system with initial positions and velocities.
+# The code is written in Julia and uses various Julia packages such as AtomsCalculators, ASEconvert, Unitful, PythonCall, GLMakie, Molly, and Zygote.
+# The code is intended for simulating and analyzing the behavior of atoms in materials using the EAM potential.
+
 # +
 cd(@__DIR__)
 
@@ -474,18 +481,19 @@ print("\n")
 z_coords = [coords[3] for coords in molly_system.coords]
 frozen_atoms = [index for (index, z_coord) in enumerate(z_coords) if z_coord < al_LatConst*2.9*0.1*u"nm"]
 print(length(frozen_atoms))
+print("\n")
 
 # ### Run ABCSimulator
 
 # +
-sigma = 2e-3
+sigma = 5e-3
 W = 0.1
 @printf("sigma = %e nm/dof^1/2\n W = %e eV",ustrip(sigma),ustrip(W))
 
-simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=100, max_steps_minimize=60, step_size_minimize=1.5e-3u"nm", tol=1e-12u"kg*m*s^-2")
+simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=1000, max_steps_minimize=60, step_size_minimize=1.5e-3u"nm", tol=1e-12u"kg*m*s^-2")
 # Run the simulation
 print("\n")
-simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
+simulate!(molly_system, simulator, n_threads=1, fname="output_test_446.txt", frozen_atoms=frozen_atoms)
 
 # # simulation cell after energy minimization
 atoms_ase_sim = convert_ase_custom(molly_system)
@@ -500,7 +508,7 @@ colors = []
 for (index, value) in enumerate(molly_system.coords)
     push!(colors, index < length(molly_system.coords) ? color_0 : color_1)
 end
-visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
+visualize(molly_system.loggers.coords, boundary_condition, "test_446.mp4", markersize=0.1, color=colors)
 
 # +
 # # Start from an energy minimum
