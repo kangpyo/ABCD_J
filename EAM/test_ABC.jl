@@ -16,9 +16,7 @@
 # This file contains code for testing the EAM (Embedded Atom Method) potential in Julia using the Molly package.
 # The code sets up an aluminum surface with an adsorbate and initializes a Molly system.
 # It defines a customized interaction type for the EAM potential and calculates potential energy and forces using the ASE EAM calculator.
-# The code also includes functions for converting between Molly and ASE formats, as well as initializing the system with initial positions and velocities.
-# The code is written in Julia and uses various Julia packages such as AtomsCalculators, ASEconvert, Unitful, PythonCall, GLMakie, Molly, and Zygote.
-# The code is intended for simulating and analyzing the behavior of atoms in materials using the EAM potential.
+# The code also includes functions for converting between Molly and ASE formats, as well as initializing the system with initial positions
 
 # +
 cd(@__DIR__)
