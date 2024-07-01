@@ -40,6 +40,13 @@ import Interpolations:CubicSplineInterpolation, interpolate, BSpline, Cubic, sca
 using DelimitedFiles
 # -
 
+function repeat(fun,times)
+    for i in 1:times
+        fun
+    end
+    return fun
+end
+
 # ## ASE EAM for reference
 
 # +
@@ -175,8 +182,6 @@ end
 
 # ## Define a Molly system wo interaction 
 
-
-
 # +
 ## 1. Import ASE and other Python modules
 # Import ASE and other Python modules as needed
@@ -219,7 +224,7 @@ function system_adatom(size)
     return molly_atoms, atoms_ab, box_size, atom_positions
 end
 
-molly_atoms, atoms_ab, box_size, atom_positions = system_adatom((5,5,6))
+molly_atoms, atoms_ab, box_size, atom_positions = system_adatom((20,20,24))
 
 
 # Specify boundary condition
@@ -309,7 +314,24 @@ function set_splines(calculator::EAM)
 end
 
 
-function read_potential(calculator::EAM, fd::String)
+"""
+    read_potential!(calculator::EAM, fd::String)
+
+Reads the potential data from a file and populates the fields of the `calculator` object.
+
+# Arguments
+- `calculator::EAM`: The EAM calculator object to populate with potential data.
+- `fd::String`: The file path to the potential data file.
+
+# Description
+This function reads the potential data from the specified file and assigns the values to the corresponding fields of the `calculator` object. The file should be in a specific format, with each line containing the relevant data for a specific field.
+
+The function starts reading the file from the 4th line and converts the lines into a list of strings. It then extracts the number of elements, element symbols, and other parameters from the list. Next, it reads the embedded energy and electron density data for each element, as well as the r*phi data for each interaction between elements. Finally, it sets up the ranges and arrays for the potential data and calls the `set_splines` function to calculate the splines.
+
+Note: This function assumes that the potential data file is formatted correctly and contains the required information in the expected order.
+
+"""
+function read_potential!(calculator::EAM, fd::String)
     lines = readdlm(fd, '\n', String) # read the files, split by new line
 
     function lines_to_list(lines) # convert the entries in lines to list
@@ -380,7 +402,7 @@ end
 
 eam = EAM()
 fname = "Al99.eam.alloy"
-read_potential(eam, fname)
+read_potential!(eam, fname)
 
 # ## 2. Calculate potential energy
 
@@ -399,6 +421,18 @@ function get_neighbors(neig, i)
     return unique(neighbors)
 end
 
+function get_neighbors_all(sys::Molly.System)
+    neighbors_all = [Int[] for _ in 1:length(sys.atoms)]
+    n_threads = 1
+    neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
+    for i in 1:length(neig)
+        pair_i = neig[i]
+        append!(neighbors_all[pair_i[1]], pair_i[2])
+        append!(neighbors_all[pair_i[2]], pair_i[1])
+    end
+    return neighbors_all
+end
+
 function get_type(index_list, typelist)
     list_type_index = Vector{Int}(undef, length(index_list))
     for i in 1:length(index_list)
@@ -407,72 +441,154 @@ function get_type(index_list, typelist)
     return list_type_index
 end
 
-function calculate_energy(eam::EAM, sys::Molly.System)
+"""
+calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
+
+Calculate the total energy of a system using the Embedded Atom Method (EAM).
+
+# Arguments
+- `eam::EAM`: The EAM calculator.
+- `sys::Molly.System`: The system object containing atom coordinates and types.
+- `neighbors_all`: A precomputed list of neighbors for each atom.
+
+# Returns
+- `energy::Float64`: The total energy of the system in electron volts (eV).
+"""
+function calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
     n_threads = 1
     typelist = [1]
 
-    # start defining functions
-    pair_energy = 0.0
-    embedding_energy = 0.0
-    total_density = zeros(length(sys.atoms))
+    pair_energy::Float64 = 0.0
+    embedding_energy::Float64 = 0.0
+    total_density = zeros(Float64, length(sys.atoms))
 
-    neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
-
+    # neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
+    # neighbors_all = get_neighbors_all(sys)
+    
+    i_type = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
 
     for i in 1:length(sys.atoms)
-        i_type = indexin(1, typelist)[1]
-        
-        neighbors = get_neighbors(neig, i)
+        # neighbors = get_neighbors(neig, i)
+        neighbors = neighbors_all[i]
         
         if isempty(neighbors)
             continue
         end
 
-        # distance between atom i and its neighbors
-        d_i = []
-        for j in neighbors
-            d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10 # convert to Å
-            append!(d_i, d_ij)
+        d_i = zeros(Float64, length(neighbors))
+        for (index_j, j) in enumerate(neighbors)
+            d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10
+            d_i[index_j] = d_ij
         end
 
-        for j_type in 1:eam.Nelements # iterate over all types
-            use = get_type(neighbors, typelist) .== j_type # get the index of the neighbors with type j
-            if !any(use)
-                continue
-            end
-            pair_energy += sum(eam.phi[i_type, j_type].(d_i[use])) # pairwise energy
+        for j_type in 1:eam.Nelements
+            # use = get_type(neighbors, typelist) .== j_type
+            # if !any(use)
+            #     continue
+            # end
+            pair_energy += Float64(sum(eam.phi[i_type, j_type].(d_i)))  # Use a view
 
-            density = sum(eam.electron_density[j_type].(d_i[use])) # electron density
-            total_density[i] += density # total electron density around atom i
+            # density = Float64(sum(eam.electron_density[j_type].(view(d_i, use))))  # Use a view
+            total_density[i] += Float64(sum(eam.electron_density[j_type].(d_i)))  # Use a view
         end
-        embedding_energy += eam.embedded_energy[i_type].(total_density[i])
+        embedding_energy += Float64(eam.embedded_energy[i_type].(total_density[i]))
     end
 
     components = Dict("pair" => pair_energy/2, "embedding" => embedding_energy)
-    energy = sum(values(components))
+    energy::Float64 = sum(values(components))
     return energy*u"eV"
 end
-# -
 
+# +
+sys = molly_system
+n_threads = 1
+typelist = [1]
+
+pair_energy::Float64 = 0.0
+embedding_energy::Float64 = 0.0
+total_density = zeros(Float64, length(sys.atoms))
+
+# neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
+neighbors_all = get_neighbors_all(sys)
+
+
+i_type = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
+for i in 1:length(sys.atoms)
+    # @time neighbors = get_neighbors(neig, i)
+    neighbors = neighbors_all[i]
+    
+    if isempty(neighbors)
+        continue
+    end
+
+    d_i = zeros(Float64, length(neighbors))
+    for (index_j, j) in enumerate(neighbors)
+        d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10
+        d_i[index_j] = d_ij
+    end
+
+    for j_type in 1:eam.Nelements
+        use = get_type(neighbors, typelist) .== j_type
+        if !any(use)
+            continue
+        end
+        pair_energy += Float64(sum(eam.phi[i_type, j_type].(view(d_i, use))))  # Use a view
+
+        # density = Float64(sum(eam.electron_density[j_type].(view(d_i, use))))  # Use a view
+        total_density[i] += Float64(sum(eam.electron_density[j_type].(view(d_i, use))))
+    end
+    embedding_energy += Float64(eam.embedded_energy[i_type].(total_density[i]))
+end
+
+components = Dict("pair" => pair_energy/2, "embedding" => embedding_energy)
+energy::Float64 = sum(values(components))
+
+# +
 atoms_ase_sim = convert_ase_custom(molly_system)
-@printf("ASE EAM calculator: %e\n",ustrip(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)))
-@printf("My EAM calculator: %e\n",ustrip(calculate_energy(eam, molly_system)))
+
+using Chairmarks
+
+neighbors_all = get_neighbors_all(sys)
+
+println("Calculating potential energy using ASE EAM calculator")
+@time E_ASE = AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+println("Calculating potential energy using my EAM calculator")
+@time E_my = calculate_energy(eam, molly_system, neighbors_all)
+@printf("ASE EAM calculator: %e eV\n",ustrip(E_ASE))
+@printf("My EAM calculator: %e eV\n",ustrip(E_my))
+@printf("Difference: %e eV\n",ustrip(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal) - calculate_energy(eam, molly_system, neighbors_all)))
+# -
 
 # ## 3. Calculate force
 
-function calculate_forces(eam::EAM, sys::Molly.System)
+"""
+    calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
+
+Calculate the forces on particles in a molecular system using the Embedded Atom Method (EAM).
+
+# Arguments
+- `eam::EAM`: An instance of the EAM potential.
+- `sys::Molly.System`: The molecular system.
+- `neighbors_all`: A matrix containing the neighbors of each particle in the system.
+
+# Returns
+- `forces_particle`: A matrix containing the forces on each particle in the system.
+"""
+function calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
     n_threads = 1
     typelist = [1]
     
     forces_particle = fill(SVector{3, Float64}(0, 0, 0), length(sys.coords))
-    neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
+    # neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
+    # neighbors_all = get_neighbors_all(sys)
 
     # calculate total_density
     total_density = zeros(length(sys.atoms))
     for i in 1:length(sys.atoms)
         i_type = indexin(1, typelist)[1]
         
-        neighbors = get_neighbors(neig, i)
+        # neighbors = get_neighbors(neig, i)
+        neighbors = neighbors_all[i]
 
         if isempty(neighbors)
             continue
@@ -500,7 +616,8 @@ function calculate_forces(eam::EAM, sys::Molly.System)
     for i in 1:length(sys.coords)
         i_type = indexin(1, typelist)[1]
             
-        neighbors = get_neighbors(neig, i)
+        # neighbors = get_neighbors(neig, i)
+        neighbors = neighbors_all[i]
         
         if isempty(neighbors)
             continue
@@ -548,13 +665,18 @@ function calculate_forces(eam::EAM, sys::Molly.System)
 end
 
 # +
-forces_my = calculate_forces(eam, molly_system)
-forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+println("Calculating forces using ASE EAM calculator")
+@time forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+println("Calculating forces using My EAM calculator")
+@time forces_my = calculate_forces(eam, molly_system, neighbors_all)
 
 @printf("Sum of forces by ASE EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_ASE))...)
-@printf("Sum of forces by My EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_my))...)
+@printf("Sum of forces by my EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_my))...)
 
 forces_err = forces_my - forces_ASE
 index_max_forces_err = argmax([sqrt(sum(fe.^2)) for fe in forces_err])
 @printf("Max force error: %e eV/Å\n", ustrip(sqrt(sum(forces_err[index_max_forces_err].^2))))
+
+# -
+
 

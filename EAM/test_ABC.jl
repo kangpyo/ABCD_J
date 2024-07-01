@@ -13,11 +13,6 @@
 #     name: julia-1.10
 # ---
 
-# This file contains code for testing the EAM (Embedded Atom Method) potential in Julia using the Molly package.
-# The code sets up an aluminum surface with an adsorbate and initializes a Molly system.
-# It defines a customized interaction type for the EAM potential and calculates potential energy and forces using the ASE EAM calculator.
-# The code also includes functions for converting between Molly and ASE formats, as well as initializing the system with initial positions
-
 # +
 cd(@__DIR__)
 
@@ -268,13 +263,13 @@ end
 
 # +
 # Define the ABCSimulator structure
+"""
+In the constructor function ABCSimulator, default values are provided for each of these fields. 
+If you create a SteepestDescentMinimizer without specifying the types, default values 
+will determine the types of the fields. For example, if you create a ABCSimulator without specifying sigma, 
+it will default to 0.01*u"nm", and S will be the type of this value.
+"""
 struct ABCSimulator{S,W,D,F,L}
-    """
-    In the constructor function ABCSimulator, default values are provided for each of these fields. 
-    If you create a SteepestDescentMinimizer without specifying the types, default values 
-    will determine the types of the fields. For example, if you create a ABCSimulator without specifying sigma, 
-    it will default to 0.01*u"nm", and S will be the type of this value.
-    """
     sigma::S 
     W::W
     max_steps::Int
@@ -284,7 +279,23 @@ struct ABCSimulator{S,W,D,F,L}
     log_stream::L
 end
 
-# Constructor for ABCSimulator
+"""
+ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01u"nm", tol=1e-10u"kg*m*s^-2", log_stream=devnull)
+
+Constructor for ABCSimulator.
+
+## Arguments
+- `sigma`: The value of sigma in units of nm.
+- `W`: The value of W in units of eV.
+- `max_steps`: The maximum number of steps for the simulator.
+- `max_steps_minimize`: The maximum number of steps for the minimizer.
+- `step_size_minimize`: The step size for the minimizer in units of nm.
+- `tol`: The tolerance for convergence in units of kg*m*s^-2.
+- `log_stream`: The stream to log the output.
+
+## Returns
+- An instance of ABCSimulator.
+"""
 function ABCSimulator(;
                         sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01u"nm",tol=1e-10u"kg*m*s^-2",
                         log_stream=devnull)
@@ -292,15 +303,15 @@ function ABCSimulator(;
 end
 
 # Penalty function with Gaussuan form
+"""
+Returns a penalty function of system coordinate x with Gaussuan form
+x:      System coordinate
+x_0:    Reference system coordinate
+sigma:  Spatial extent of the activation, per sqrt(degree of freedom)
+W:      Strenth of activation, per degree of freedom
+pbc:    Periodic boundary conditions
+"""
 function f_phi_p(x, x_0, sigma, W, pbc=nothing)
-    """
-    Returns a penalty function of system coordinate x with Gaussuan form
-    x:      System coordinate
-    x_0:    Reference system coordinate
-    sigma:  Spatial extent of the activation, per sqrt(degree of freedom)
-    W:      Strenth of activation, per degree of freedom
-    pbc:    Periodic boundary conditions
-    """
     N = length(x)
     
     sigma2_new = sigma^2*3*N
@@ -321,13 +332,14 @@ function penalty_forces(sys, penalty_coords, sigma, W)
 end
 
 # Define the forces function with penalty term
+"""
+Evaluate the forces acting on the system with penalty term
+If there is no penalty term, the penalty_coords should be set to nothing, 
+and return the forces identical to the original forces function
+"""
 function Molly.forces(sys::System, penalty_coords, sigma, W, neighbors;
     n_threads::Integer=Threads.nthreads()) 
-    """
-    Evaluate the forces acting on the system with penalty term
-    If there is no penalty term, the penalty_coords should be set to nothing, 
-    and return the forces identical to the original forces function
-    """
+
     
     fs = forces(sys, neighbors; n_threads=n_threads)
 
@@ -340,6 +352,20 @@ function Molly.forces(sys::System, penalty_coords, sigma, W, neighbors;
 end
 
 # Define the Minimize! function, on the basis of the Molly SteepestDescentMinimizer
+"""
+Minimize!(sys, sim, penalty_coords; n_threads::Integer, frozen_atoms=[])
+
+Minimizes the system `sys` energy using the simulatior `sim` providing penalty coordinates `penalty_coords`.
+
+# Arguments
+- `sys`: The system to be minimized.
+- `sim`: The simulation object.
+- `penalty_coords`: The penalty coordinates used in the minimization.
+- `n_threads`: The number of threads to use in the minimization.
+- `frozen_atoms`: (optional) A list of atoms to be frozen during the minimization.
+
+# Examples
+"""
 function Minimize!(sys, sim, penalty_coords; n_threads::Integer, frozen_atoms=[])
     neighbors = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
     using_constraints = length(sys.constraints) > 0
@@ -402,7 +428,24 @@ function Minimize!(sys, sim, penalty_coords; n_threads::Integer, frozen_atoms=[]
 end
 
 # Implement the simulate! function for ABCSimulator
+"""
+simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
+
+Simulates the system using the ABCSimulator.
+
+# Arguments
+- `sys`: The system to be simulated.
+- `sim`: An instance of the ABCSimulator.
+- `n_threads`: The number of threads to use for parallel execution. Defaults to the number of available threads.
+- `frozen_atoms`: A list of atoms that should be frozen during the simulation.
+- `run_loggers`: A boolean indicating whether to run the loggers during the simulation.
+- `fname`: The name of the output file.
+
+# Examples 
+simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
+"""
 function simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
+
     # Do not wrap the coordinates
     neighbors = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
 
@@ -484,14 +527,14 @@ print("\n")
 # ### Run ABCSimulator
 
 # +
-sigma = 5e-3
+sigma = 2e-3
 W = 0.1
 @printf("sigma = %e nm/dof^1/2\n W = %e eV",ustrip(sigma),ustrip(W))
 
-simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=1000, max_steps_minimize=60, step_size_minimize=1.5e-3u"nm", tol=1e-12u"kg*m*s^-2")
+simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=1, max_steps_minimize=60, step_size_minimize=1.5e-3u"nm", tol=1e-12u"kg*m*s^-2")
 # Run the simulation
 print("\n")
-simulate!(molly_system, simulator, n_threads=1, fname="output_test_446.txt", frozen_atoms=frozen_atoms)
+simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
 
 # # simulation cell after energy minimization
 atoms_ase_sim = convert_ase_custom(molly_system)
@@ -506,41 +549,4 @@ colors = []
 for (index, value) in enumerate(molly_system.coords)
     push!(colors, index < length(molly_system.coords) ? color_0 : color_1)
 end
-visualize(molly_system.loggers.coords, boundary_condition, "test_446.mp4", markersize=0.1, color=colors)
-
-# +
-# # Start from an energy minimum
-# # tol: the default value was 1000 kJ/mol/nm ~= 9.6e13 eV/m ~= 1.5e-5 J/M
-# simulator = SteepestDescentMinimizer(step_size=0.01u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
-# # Run the simulation
-# Molly.simulate!(molly_system, simulator)
-
-# atoms_ase_sim = convert_ase_custom(molly_system)
-# print(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal))
-# ase_view.view(atoms_ase_sim, viewer="x3d")
-
-# +
-# molly_system = initialize_system()
-# simulator = SteepestDescentMinimizer(step_size=0.01u"nm", tol=1e-12u"kg*m*s^-2", log_stream=devnull)
-# Molly.simulate!(molly_system, simulator)
-# neighbors = find_neighbors(molly_system, molly_system.neighbor_finder; n_threads=1)
-# fs = forces(molly_system, neighbors; n_threads=1)
-# print(maximum(norm.(fs)))
-# print("\n")
-
-# coords = copy(molly_system.coords)
-# penalty_coords = [coords]
-
-
-# for i in 1:length(coords)
-#     random_direction = randn(size(coords[i]))
-#     molly_system.coords[i] += 1e-5*u"nm" * random_direction
-# end
-
-
-# sigma=1e-1*u"nm"
-# W=1e2*u"eV"
-# fs = forces(molly_system, neighbors; n_threads=1)
-# print(maximum(norm.(fs)))
-# print("\n")
-# print(u"kg*m*s^-2"(maximum(norm.(penalty_forces(molly_system, penalty_coords, sigma, W)))))
+visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
