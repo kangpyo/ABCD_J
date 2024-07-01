@@ -12,6 +12,8 @@ Incorporating Julia into a new metadynamics molecular simulation program
 
 ### `test_ABC.ipynb`: Defining custom ABC simulator function.
 
+![](https://github.com/ch-tung/ABCD_J/blob/7fe5081cf97966e08ad64c2363283cd5736bd206/ABC.png?raw=true)
+
 - Constructor for ABCSimulator.
 
 `ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01u"nm",tol=1e-10u"kg*m*s^-2",`
