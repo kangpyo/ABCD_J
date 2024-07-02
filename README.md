@@ -1,4 +1,4 @@
-# ABCD_J: Autonomous Basin Climbing Dynamics in Julia
+# [ABCD_J: Autonomous Basin Climbing Dynamics in Julia](https://github.com/ch-tung/ABCD_J.git)
 
 Incorporating Julia into a new metadynamics molecular simulation program. The simulation framework was developed using the Julia packages [Molly.jl](https://github.com/JuliaMolSim/Molly.jl.git), [AtomsBase.jl](https://github.com/JuliaMolSim/AtomsBase.jl.git), and [AtomsCalculators.jl](https://github.com/JuliaMolSim/AtomsCalculators.jl).
 
@@ -93,7 +93,7 @@ visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersiz
 
 ---
 
-`test_JuliaEAM.ipynb`: Calculate EAM interactions using Julia.
+### `test_JuliaEAM.ipynb`: Calculate EAM interactions using Julia.
 
 - Read the potential data from a file and populates the fields of the `calculator` object.
 
