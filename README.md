@@ -111,15 +111,15 @@ Arguments
 
 Arguments
 
-eam: The EAM potential parameters.
+`eam`: The EAM potential parameters.
 
-sys: The system object containing atom coordinates and types.
+`sys`: The system object containing atom coordinates and types.
 
-neighbors_all: A precomputed list of neighbors for each atom.
+`neighbors_all`: A precomputed list of neighbors for each atom.
 
 Returns
 
-energy: The total energy of the system in electron volts (eV).
+`energy`: The total energy of the system in electron volts (eV).
 
 - Calculate the forces on particles in a molecular system using the Embedded Atom Method (EAM).
 
@@ -127,15 +127,15 @@ energy: The total energy of the system in electron volts (eV).
 
 Arguments
 
-eam: An instance of the EAM potential.
+`eam`: An instance of the EAM potential.
 
-sys: The molecular system.
+`sys`: The molecular system.
 
-neighbors_all: A precomputed list of neighbors for each atom.
+`neighbors_all`: A precomputed list of neighbors for each atom.
 
 Returns
 
-forces_particle: A matrix containing the forces on each particle in the system.
+`forces_particle`: A matrix containing the forces on each particle in the system.
 
 Example
 
