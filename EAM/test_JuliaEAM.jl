@@ -16,6 +16,8 @@
 # +
 cd(@__DIR__)
 ENV["CELLLISTMAP_8.3_WARNING"] = "false"
+ENV["JULIA_NUM_THREADS"] = 16
+using Base.Threads
 
 using Pkg
 Pkg.activate(".")
@@ -433,7 +435,7 @@ function get_neighbors_all(sys::Molly.System)
     return neighbors_all
 end
 
-function get_type(index_list, typelist)
+function get_type(index_list::Vector{Int64}, typelist::Vector{Int64})
     list_type_index = Vector{Int}(undef, length(index_list))
     for i in 1:length(index_list)
         list_type_index[i] = indexin(1, typelist)[1]
@@ -532,23 +534,31 @@ for i in 1:length(sys.atoms)
         if !any(use)
             continue
         end
+        t_1 = time()
         pair_energy += Float64(sum(eam.phi[i_type, j_type].(view(d_i, use))))  # Use a view
-
+        t_2 = time()
+        print(t_2-t_1)
         # density = Float64(sum(eam.electron_density[j_type].(view(d_i, use))))  # Use a view
         total_density[i] += Float64(sum(eam.electron_density[j_type].(view(d_i, use))))
     end
     embedding_energy += Float64(eam.embedded_energy[i_type].(total_density[i]))
+
+    
 end
 
 components = Dict("pair" => pair_energy/2, "embedding" => embedding_energy)
 energy::Float64 = sum(values(components))
 
+
+
 # +
 atoms_ase_sim = convert_ase_custom(molly_system)
 
-using Chairmarks
-
 neighbors_all = get_neighbors_all(sys)
+
+# run first time before timing
+AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+calculate_energy(eam, molly_system, neighbors_all)
 
 println("Calculating potential energy using ASE EAM calculator")
 @time E_ASE = AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
@@ -558,6 +568,10 @@ println("Calculating potential energy using my EAM calculator")
 @printf("My EAM calculator: %e eV\n",ustrip(E_my))
 @printf("Difference: %e eV\n",ustrip(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal) - calculate_energy(eam, molly_system, neighbors_all)))
 # -
+
+using ProfileView
+# @profview AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+ProfileView.@profview calculate_energy(eam, molly_system, neighbors_all)
 
 # ## 3. Calculate force
 
@@ -651,11 +665,11 @@ function calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
             end
 
             d_use = d_i[use]
-            density_j = total_density[neighbors[use]]
+            total_density_j = total_density[neighbors[use]]
 
             scale = (eam.d_phi[i_type, j_type].(d_use) +
                     (d_embedded_energy_i .* eam.d_electron_density[j_type].(d_use)) +
-                    (eam.d_embedded_energy[j_type].(density_j) .* eam.d_electron_density[i_type].(d_use)))
+                    (eam.d_embedded_energy[j_type].(total_density_j) .* eam.d_electron_density[i_type].(d_use)))
 
                     forces_particle[i, :] .+= (scale' * ur_i[use,:])
         end
@@ -665,6 +679,10 @@ function calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
 end
 
 # +
+# run first time before timing
+forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+forces_my = calculate_forces(eam, molly_system, neighbors_all)
+
 println("Calculating forces using ASE EAM calculator")
 @time forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
 println("Calculating forces using My EAM calculator")
@@ -676,7 +694,4 @@ println("Calculating forces using My EAM calculator")
 forces_err = forces_my - forces_ASE
 index_max_forces_err = argmax([sqrt(sum(fe.^2)) for fe in forces_err])
 @printf("Max force error: %e eV/Å\n", ustrip(sqrt(sum(forces_err[index_max_forces_err].^2))))
-
-# -
-
 
