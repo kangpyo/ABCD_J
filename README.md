@@ -1,10 +1,10 @@
 # ABCD_J: Autonomous Basin Climbing Dynamics in Julia
 
-Incorporating Julia into a new metadynamics molecular simulation program
+Incorporating Julia into a new metadynamics molecular simulation program. The simulation framework was developed using the Julia packages [Molly.jl](https://github.com/JuliaMolSim/Molly.jl.git), [AtomsBase.jl](https://github.com/JuliaMolSim/AtomsBase.jl.git), and [AtomsCalculators.jl](https://github.com/JuliaMolSim/AtomsCalculators.jl).
 
 ## `EAM/`: Incoporate EAM forcefield to benchmark the Al adatom toy model.
 
-### `test_minimize.ipynb`: Incorporated the EAM forcefield for metallic element interactions from Python ASE package to the Molly system/simulator framework.
+### `test_minimize.ipynb`: Incorporated the EAM forcefield for metallic element interactions from Python [ASE](https://gitlab.com/ase/ase.git) package to the Molly system/simulator framework.
 
 ![](https://github.com/ch-tung/ABCD_J/blob/d94d2efdf2ac7988aea6161c3682c5a385521688/EAM.png?raw=true)
 
