@@ -16,8 +16,6 @@
 # +
 cd(@__DIR__)
 ENV["CELLLISTMAP_8.3_WARNING"] = "false"
-ENV["JULIA_NUM_THREADS"] = 16
-using Base.Threads
 
 using Pkg
 Pkg.activate(".")
@@ -38,15 +36,14 @@ using GLMakie
 using Molly
 using Zygote
 using LinearAlgebra
-import Interpolations:CubicSplineInterpolation, interpolate, BSpline, Cubic, scale
+import Interpolations:CubicSplineInterpolation, interpolate, BSpline, Cubic, scale, Line, OnGrid, extrapolate, Gridded
 using DelimitedFiles
 # -
 
 function repeat(fun,times)
     for i in 1:times
-        fun
+        fun()
     end
-    return fun
 end
 
 # ## ASE EAM for reference
@@ -249,6 +246,25 @@ molly_system = Molly.System(
 
 # ## Define interaction
 
+# +
+function deriv(spline)
+    d_spline(x) = gradient(spline, x)[1]
+    return d_spline
+end
+
+# Helper function to get the type of a CubicSplineInterpolation object
+function get_spline_type()
+    dummy_spline = CubicSplineInterpolation(0.0:1.0:2.0, [0.0, 1.0, 2.0])
+    return typeof(dummy_spline)
+end
+
+# Helper function to get the type of the derivative of a CubicSplineInterpolation object
+function get_deriv_type()
+    dummy_spline = CubicSplineInterpolation(0.0:1.0:2.0, [0.0, 1.0, 2.0])
+    dummy_deriv = deriv(dummy_spline)
+    return typeof(dummy_deriv)
+end
+
 mutable struct EAM
     Nelements::Int
     elements::Vector{String}
@@ -268,44 +284,49 @@ mutable struct EAM
     rho_range::StepRangeLen{Float64, Base.TwicePrecision{Float64}, Base.TwicePrecision{Float64}}
     r::Vector{Float64}
     rho::Vector{Float64}
-    embedded_energy::Vector{Any}
-    electron_density::Vector{Any}
-    d_embedded_energy::Vector{Any}
-    d_electron_density::Vector{Any}
-    phi::Matrix{Any}
-    d_phi::Matrix{Any}
+
+    embedded_energy::Vector{get_spline_type()}
+    electron_density::Vector{get_spline_type()}
+    d_embedded_energy::Vector{get_spline_type()}
+    d_electron_density::Vector{get_spline_type()}
+    phi::Matrix{get_spline_type()}
+    d_phi::Matrix{get_spline_type()}
 
     EAM() = new()
 end
 
 # +
-function deriv(spline)
-    d_spline(x) = gradient(spline, x)[1]
-    return d_spline
-end
-
 function set_splines(calculator::EAM)
-    calculator.embedded_energy = Vector{Any}(undef, calculator.Nelements)
-    calculator.electron_density = Vector{Any}(undef, calculator.Nelements)
-    calculator.d_embedded_energy = Vector{Any}(undef, calculator.Nelements)
-    calculator.d_electron_density = Vector{Any}(undef, calculator.Nelements)
+    calculator.embedded_energy = Vector{get_spline_type()}(undef, calculator.Nelements)
+    calculator.electron_density = Vector{get_spline_type()}(undef, calculator.Nelements)
+    calculator.d_embedded_energy = Vector{get_spline_type()}(undef, calculator.Nelements)
+    calculator.d_electron_density = Vector{get_spline_type()}(undef, calculator.Nelements)
 
     for i in 1:calculator.Nelements
         calculator.embedded_energy[i] = CubicSplineInterpolation(calculator.rho_range, calculator.embedded_data[i, :]) # arrays of embedded energy functions, [N_types]
         calculator.electron_density[i] = CubicSplineInterpolation(calculator.r_range, calculator.density_data[i, :]) # arrays of electron density functions, [N_types]
-        calculator.d_embedded_energy[i] = deriv(calculator.embedded_energy[i]) # arrays of derivative of embedded energy functions, [N_types]
-        calculator.d_electron_density[i] = deriv(calculator.electron_density[i]) # arrays of derivative of electron density functions, [N_types]
+        f_embedded_energy = deriv(calculator.embedded_energy[i])
+        f_electron_density = deriv(calculator.electron_density[i])
+        d_embedded_energy_knot = f_embedded_energy.(calculator.rho)
+        d_electron_density_knot = f_electron_density.(calculator.r)
+        calculator.d_embedded_energy[i] = CubicSplineInterpolation(calculator.rho_range,d_embedded_energy_knot) # arrays of derivative of embedded energy functions, [N_types]
+        calculator.d_electron_density[i] = CubicSplineInterpolation(calculator.r_range,d_electron_density_knot) # arrays of derivative of electron density functions, [N_types]
+        # calculator.d_embedded_energy[i] = deriv(calculator.embedded_energy[i]) # arrays of derivative of embedded energy functions, [N_types]
+        # calculator.d_electron_density[i] = deriv(calculator.electron_density[i]) # arrays of derivative of electron density functions, [N_types]
     end
 
-    calculator.phi = Matrix{Any}(undef, calculator.Nelements, calculator.Nelements) # arrays of pairwise energy functions, [N_types, N_types]
-    calculator.d_phi = Matrix{Any}(undef, calculator.Nelements, calculator.Nelements) # arrays, [N_types, N_types]
+    calculator.phi = Matrix{get_spline_type()}(undef, calculator.Nelements, calculator.Nelements) # arrays of pairwise energy functions, [N_types, N_types]
+    calculator.d_phi = Matrix{get_spline_type()}(undef, calculator.Nelements, calculator.Nelements) # arrays, [N_types, N_types]
 
     # ignore the first point of the phi data because it is forced
     # to go through zero due to the r*phi format in alloy and adp
     for i in 1:calculator.Nelements
         for j in i:calculator.Nelements
             calculator.phi[i, j] = CubicSplineInterpolation(calculator.r_range[2:end], calculator.rphi_data[i, j, :][2:end] ./ calculator.r[2:end]) 
-            calculator.d_phi[i, j] = deriv(calculator.phi[i, j])
+            f_d_phi = deriv(calculator.phi[i, j])
+            d_phi_knot = f_d_phi.(calculator.r[2:end])
+            calculator.d_phi[i, j] = CubicSplineInterpolation(calculator.r_range[2:end],d_phi_knot)
+            # calculator.d_phi[i, j] = deriv(calculator.phi[i, j])
 
             if j != i
                 calculator.phi[j, i] = calculator.phi[i, j]
@@ -398,6 +419,72 @@ function read_potential!(calculator::EAM, fd::String)
     set_splines(calculator)
 end
 
+
+# +
+lines = readdlm("Al99.eam.alloy", '\n', String) # read the files, split by new line
+calculator = EAM()
+
+function lines_to_list(lines) # convert the entries in lines to list
+    data = []
+    for line in lines
+        append!(data, split(line))
+    end
+    return data
+end
+
+i = 4 # start from the 4th line
+data = lines_to_list(lines[i:end])
+
+calculator.Nelements = parse(Int, data[1]) # number of elements
+d = 2
+calculator.elements = data[d:d+calculator.Nelements-1] # the elements symbols starts from the 2nd entries
+d += calculator.Nelements
+
+calculator.nrho = parse(Int, data[d]) 
+calculator.drho = parse(Float64, data[d+1])
+calculator.nr = parse(Int, data[d+2])
+calculator.dr = parse(Float64, data[d+3])# the cutoff radius in angstroms
+calculator.cutoff = parse(Float64, data[d+4]) 
+
+calculator.embedded_data = zeros(calculator.Nelements, calculator.nrho)
+calculator.density_data = zeros(calculator.Nelements, calculator.nr)
+calculator.Z = zeros(Int, calculator.Nelements)
+calculator.mass = zeros(calculator.Nelements)
+calculator.a = zeros(calculator.Nelements)
+calculator.lattice = ""
+d += 5
+
+# reads in the part of the eam file for each element
+for elem in 1:calculator.Nelements
+    calculator.Z[elem] = parse(Int, data[d]) # the atomic number
+    calculator.mass[elem] = parse(Float64, data[d+1]) # the atomic mass
+    calculator.a[elem] = parse(Float64, data[d+2]) # the lattice constant
+    calculator.lattice *= data[d+3] # the lattice type
+    d += 4
+
+    calculator.embedded_data[elem, :] = parse.(Float64, data[d:(d+calculator.nrho-1)]) # the embedded energy of the element
+    d += calculator.nrho
+    calculator.density_data[elem, :] = parse.(Float64, data[d:(d+calculator.nr-1)]) # the electron density of the element
+    d += calculator.nr
+end
+
+# reads in the r*phi data for each interaction between elements
+calculator.rphi_data = zeros(calculator.Nelements, calculator.Nelements, calculator.nr)
+
+for i in 1:calculator.Nelements
+    for j in 1:i
+        calculator.rphi_data[j, i, :] = parse.(Float64, data[d:(d+calculator.nr-1)])
+        d += calculator.nr
+    end
+end
+
+calculator.r_range = (0:calculator.nr-1)*calculator.dr
+calculator.rho_range = (0:calculator.nrho-1)*calculator.drho
+calculator.r = collect(calculator.r_range)
+calculator.rho = collect(calculator.rho_range)
+
+set_splines(calculator)
+
 # -
 
 # ## 1. Read potential
@@ -462,38 +549,44 @@ function calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 
     pair_energy::Float64 = 0.0
     embedding_energy::Float64 = 0.0
-    total_density = zeros(Float64, length(sys.atoms))
+    total_density::Vector{Float64} = zeros(length(sys.atoms))
 
     # neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
     # neighbors_all = get_neighbors_all(sys)
     
-    i_type = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
+    i_type::Int = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
 
-    for i in 1:length(sys.atoms)
+    for i::Int in 1:length(sys.atoms)
         # neighbors = get_neighbors(neig, i)
-        neighbors = neighbors_all[i]
+        neighbors::Vector{Int} = neighbors_all[i]
+        coords_i = sys.coords[i]
         
         if isempty(neighbors)
             continue
         end
 
-        d_i = zeros(Float64, length(neighbors))
-        for (index_j, j) in enumerate(neighbors)
-            d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10
-            d_i[index_j] = d_ij
+        n_neighbors::Int = length(neighbors)
+        d_i::Vector{Float64} = zeros(n_neighbors)
+        for (index_j, j::Int) in enumerate(neighbors)
+            d_i[index_j] = ustrip(sqrt(sum(vector(coords_i, sys.coords[j], sys.boundary).^2)))*10
         end
 
-        for j_type in 1:eam.Nelements
+        eam_phi_ix = eam.phi[i_type, :]
+        eam_embedded_energy_i = eam.embedded_energy[i_type]
+        for j_type::Int in 1:eam.Nelements
             # use = get_type(neighbors, typelist) .== j_type
             # if !any(use)
             #     continue
             # end
-            pair_energy += Float64(sum(eam.phi[i_type, j_type].(d_i)))  # Use a view
+            # d_use = d_i[use]
+            d_use = d_i
 
-            # density = Float64(sum(eam.electron_density[j_type].(view(d_i, use))))  # Use a view
-            total_density[i] += Float64(sum(eam.electron_density[j_type].(d_i)))  # Use a view
+            pair_energy += sum(eam_phi_ix[j_type].(d_use))
+
+            # density = Float64(sum(eam.electron_density[j_type].(d_use)))
+            total_density[i] += sum(eam.electron_density[j_type].(d_use))
         end
-        embedding_energy += Float64(eam.embedded_energy[i_type].(total_density[i]))
+        embedding_energy += eam_embedded_energy_i.(total_density[i])
     end
 
     components = Dict("pair" => pair_energy/2, "embedding" => embedding_energy)
@@ -502,59 +595,9 @@ function calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 end
 
 # +
-sys = molly_system
-n_threads = 1
-typelist = [1]
-
-pair_energy::Float64 = 0.0
-embedding_energy::Float64 = 0.0
-total_density = zeros(Float64, length(sys.atoms))
-
-# neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
-neighbors_all = get_neighbors_all(sys)
-
-
-i_type = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
-for i in 1:length(sys.atoms)
-    # @time neighbors = get_neighbors(neig, i)
-    neighbors = neighbors_all[i]
-    
-    if isempty(neighbors)
-        continue
-    end
-
-    d_i = zeros(Float64, length(neighbors))
-    for (index_j, j) in enumerate(neighbors)
-        d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10
-        d_i[index_j] = d_ij
-    end
-
-    for j_type in 1:eam.Nelements
-        use = get_type(neighbors, typelist) .== j_type
-        if !any(use)
-            continue
-        end
-        t_1 = time()
-        pair_energy += Float64(sum(eam.phi[i_type, j_type].(view(d_i, use))))  # Use a view
-        t_2 = time()
-        print(t_2-t_1)
-        # density = Float64(sum(eam.electron_density[j_type].(view(d_i, use))))  # Use a view
-        total_density[i] += Float64(sum(eam.electron_density[j_type].(view(d_i, use))))
-    end
-    embedding_energy += Float64(eam.embedded_energy[i_type].(total_density[i]))
-
-    
-end
-
-components = Dict("pair" => pair_energy/2, "embedding" => embedding_energy)
-energy::Float64 = sum(values(components))
-
-
-
-# +
 atoms_ase_sim = convert_ase_custom(molly_system)
 
-neighbors_all = get_neighbors_all(sys)
+neighbors_all = get_neighbors_all(molly_system)
 
 # run first time before timing
 AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
@@ -567,11 +610,27 @@ println("Calculating potential energy using my EAM calculator")
 @printf("ASE EAM calculator: %e eV\n",ustrip(E_ASE))
 @printf("My EAM calculator: %e eV\n",ustrip(E_my))
 @printf("Difference: %e eV\n",ustrip(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal) - calculate_energy(eam, molly_system, neighbors_all)))
+
+function eam_ASE()
+    AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+end
+function eam_my()
+    calculate_energy(eam, molly_system, neighbors_all)
+end
+
+n_repeat = 10
+t0 = time()
+E_ASE = repeat(eam_ASE, n_repeat)
+t1 = time()
+E_ASE = repeat(eam_my, n_repeat)
+t2 = time()
+
+println("time/atom/step by ASE EAM calculator: ", (t1-t0)/n_repeat/length(molly_system.atoms), " seconds")
+println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_system.atoms), " seconds")
 # -
 
 using ProfileView
-# @profview AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
-ProfileView.@profview calculate_energy(eam, molly_system, neighbors_all)
+ProfileView.@profview repeat(eam_my, n_repeat)
 
 # ## 3. Calculate force
 
@@ -589,93 +648,108 @@ Calculate the forces on particles in a molecular system using the Embedded Atom 
 - `forces_particle`: A matrix containing the forces on each particle in the system.
 """
 function calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
-    n_threads = 1
-    typelist = [1]
-    
-    forces_particle = fill(SVector{3, Float64}(0, 0, 0), length(sys.coords))
-    # neig = find_neighbors(sys, sys.neighbor_finder; n_threads=n_threads)
-    # neighbors_all = get_neighbors_all(sys)
+    n_threads::Int = 1
+    typelist::Vector{Int} = [1]
 
+    i_type::Int = 1 in typelist ? indexin(1, typelist)[1] : error("1 not found in typelist")
+    d_electron_density_i = eam.d_electron_density[i_type]
+    
+    forces_particle::Matrix{Float64} = zeros(length(sys.coords),3)
+    
     # calculate total_density
-    total_density = zeros(length(sys.atoms))
-    for i in 1:length(sys.atoms)
-        i_type = indexin(1, typelist)[1]
+    total_density::Vector{Float64} = zeros(length(sys.atoms))
+    r_all::Vector{Matrix{Float64}} = []
+    d_all::Vector{Vector{Float64}} = []
+
+    n_neighbors_all::Vector{Int} = [length(neighbors_all[i]) for i in 1:length(sys.atoms)]
+    n_neighbors_max::Int = maximum(n_neighbors_all)
+
+    r_i::Matrix{Float64} = zeros(n_neighbors_max,3)
+    d_i::Vector{Float64} = zeros(n_neighbors_max)
+    for i::Int in 1:length(sys.atoms)
+        # i_type::Int = indexin(1, typelist)[1]
         
         # neighbors = get_neighbors(neig, i)
-        neighbors = neighbors_all[i]
-
+        neighbors::Vector{Int} = neighbors_all[i]    
         if isempty(neighbors)
             continue
         end
 
+        n_neighbors::Int = length(neighbors)
+        coords_i = sys.coords[i]
+    
         # distance between atom i and its neighbors
-        d_i = []
-        for j in neighbors
-            d_ij = ustrip(sqrt(sum(vector(sys.coords[i], sys.coords[j], sys.boundary).^2)))*10 # convert to Å
-            append!(d_i, d_ij)
+        # r_i::Matrix{Float64} = zeros(n_neighbors,3)
+        # d_i::Vector{Float64} = zeros(n_neighbors)
+        for (index_j::Int, j::Int) in enumerate(neighbors)
+            r_ij = ustrip(vector(coords_i, sys.coords[j], sys.boundary)*10) # convert to Å
+            d_ij = sqrt(sum(r_ij.^2))
+            r_i[index_j,1:3] = r_ij
+            d_i[index_j] = d_ij
         end
 
-        for j_type in 1:eam.Nelements # iterate over all types
-            use = get_type(neighbors, typelist) .== j_type # get the index of the neighbors with type j
-            if !any(use)
-                continue
-            end
-
-            density = sum(eam.electron_density[j_type].(d_i[use])) # electron density
+        push!(r_all, r_i[1:n_neighbors,1:3])
+        push!(d_all, d_i[1:n_neighbors])
+    
+        for j_type::Int in 1:eam.Nelements # iterate over all types
+            # use = get_type(neighbors, typelist) .== j_type # get the index of the neighbors with type j
+            # if !any(use)
+            #     continue
+            # end
+            # d_use = d_i[use]
+            d_use = d_all[i]
+    
+            density = sum(eam.electron_density[j_type].(d_use)) # electron density
             total_density[i] += density # total electron density around atom i
         end
     end
-
+    
     # calculate forces on particles
-    for i in 1:length(sys.coords)
-        i_type = indexin(1, typelist)[1]
+    for i::Int in 1:length(sys.coords)
+        # i_type::Int = indexin(1, typelist)[1]
             
         # neighbors = get_neighbors(neig, i)
-        neighbors = neighbors_all[i]
-        
+        neighbors::Vector{Int} = neighbors_all[i]
         if isempty(neighbors)
             continue
         end
-
-        # distance between atom i and its neighbors
-        r_i = []
-        d_i = []
-        for j in neighbors
-            r_ij = vector(sys.coords[i], sys.coords[j], sys.boundary)*10 # convert to Å
-            d_ij = ustrip(sqrt(sum(r_ij.^2)))
-            append!(d_i, d_ij)
-            append!(r_i, [ustrip(r_ij)])
-        end
+        n_neighbors::Int = length(neighbors)
+        coords_i = sys.coords[i]
+    
+        r_i = r_all[i]
+        d_i = d_all[i]
         
         # derivative of the embedded energy of atom i
-        d_embedded_energy_i = eam.d_embedded_energy[i_type].(total_density[i])
-
-        ur_i = (copy(r_i))
-
+        d_embedded_energy_i::Float64 = eam.d_embedded_energy[i_type].(total_density[i])
+    
+        ur_i = r_i
+    
         # unit directional vector
-        for j in 1:length(neighbors)
-            ur_i[j, :] ./= d_i[j]
-        end
-
-
-        for j_type in 1:eam.Nelements
-            use = get_type(neighbors, typelist) .== j_type # get the index of the neighbors with type j
-            if !any(use)
-                continue
-            end
-
-            d_use = d_i[use]
-            total_density_j = total_density[neighbors[use]]
-
-            scale = (eam.d_phi[i_type, j_type].(d_use) +
-                    (d_embedded_energy_i .* eam.d_electron_density[j_type].(d_use)) +
-                    (eam.d_embedded_energy[j_type].(total_density_j) .* eam.d_electron_density[i_type].(d_use)))
-
-                    forces_particle[i, :] .+= (scale' * ur_i[use,:])
+        ur_i ./= d_i
+        
+        for j_type::Int in 1:eam.Nelements
+            # use = get_type(neighbors, typelist) .== j_type # get the index of the neighbors with type j
+            # if !any(use)
+            #     continue
+            # end
+            # d_use = d_i[use]
+            # ur_use = ur_i[use, :]
+            # neighbors_use = neighbors[use]
+            d_use = d_i
+            ur_use::Matrix{Float64} = ur_i[:,:]
+            neighbors_use = neighbors
+    
+            total_density_j = total_density[neighbors_use]
+            
+            scale::Vector{Float64} = eam.d_phi[i_type, j_type].(d_use)
+            scale .+= (d_embedded_energy_i .* eam.d_electron_density[j_type].(d_use)) 
+            scale .+= (eam.d_embedded_energy[j_type].(total_density_j) .* d_electron_density_i.(d_use))
+    
+            forces_particle[i, :] .+= (ur_use' * scale)
         end
     end
 
-    return forces_particle*u"eV/Å"
+    return [SVector{3,Float64}(forces_particle[idx_f,:]) for idx_f in 1:size(forces_particle)[1]]*u"eV/Å"
 end
 
 # +
@@ -695,3 +769,26 @@ forces_err = forces_my - forces_ASE
 index_max_forces_err = argmax([sqrt(sum(fe.^2)) for fe in forces_err])
 @printf("Max force error: %e eV/Å\n", ustrip(sqrt(sum(forces_err[index_max_forces_err].^2))))
 
+function eam_ASE_f()
+    AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+end
+function eam_my_f()
+    calculate_forces(eam, molly_system, neighbors_all)
+end
+
+eam_ASE_f()
+eam_my_f()
+n_repeat = 10
+t0 = time()
+E_ASE = repeat(eam_ASE_f, n_repeat)
+t1 = time()
+E_ASE = repeat(eam_my_f, n_repeat)
+t2 = time()
+
+println("time/atom/step by ASE EAM calculator: ", (t1-t0)/n_repeat/length(molly_system.atoms), " seconds")
+println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_system.atoms), " seconds")
+
+# -
+
+ProfileView.@profview repeat(eam_my_f, n_repeat)
+@code_warntype repeat(eam_my_f, n_repeat)
