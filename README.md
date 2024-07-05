@@ -147,49 +147,95 @@ read_potential!(eam, fname)
 
 # 2. Calculate potential energy
 atoms_ase_sim = convert_ase_custom(molly_system)
-neighbors_all = get_neighbors_all(sys)
+
+neighbors_all = get_neighbors_all(molly_system)
+
+# run first time before timing
+AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+calculate_energy(eam, molly_system, neighbors_all)
 
 println("Calculating potential energy using ASE EAM calculator")
 @time E_ASE = AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
-
-println("Calculating forces using my EAM calculator")
+println("Calculating potential energy using my EAM calculator")
 @time E_my = calculate_energy(eam, molly_system, neighbors_all)
-
 @printf("ASE EAM calculator: %e eV\n",ustrip(E_ASE))
 @printf("My EAM calculator: %e eV\n",ustrip(E_my))
 @printf("Difference: %e eV\n",ustrip(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal) - calculate_energy(eam, molly_system, neighbors_all)))
 
+function eam_ASE()
+    AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+end
+function eam_my()
+    calculate_energy(eam, molly_system, neighbors_all)
+end
+
+n_repeat = 10
+t0 = time()
+E_ASE = repeat(eam_ASE, n_repeat)
+t1 = time()
+E_ASE = repeat(eam_my, n_repeat)
+t2 = time()
+
+println("time/atom/step by ASE EAM calculator: ", (t1-t0)/n_repeat/length(molly_system.atoms), " seconds")
+println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_system.atoms), " seconds")
+
 ## 3. Calculate force
+# run first time before timing
+forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+forces_my = calculate_forces(eam, molly_system, neighbors_all)
+
 println("Calculating forces using ASE EAM calculator")
 @time forces_ASE = AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
-
-println("Calculating forces using my EAM calculator")
+println("Calculating forces using My EAM calculator")
 @time forces_my = calculate_forces(eam, molly_system, neighbors_all)
 
 @printf("Sum of forces by ASE EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_ASE))...)
-@printf("Sum of forces by My EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_my))...)
+@printf("Sum of forces by my EAM calculator: [%e %e %e] eV/Å\n",ustrip(sum(forces_my))...)
 
 forces_err = forces_my - forces_ASE
 index_max_forces_err = argmax([sqrt(sum(fe.^2)) for fe in forces_err])
 @printf("Max force error: %e eV/Å\n", ustrip(sqrt(sum(forces_err[index_max_forces_err].^2))))
+
+function eam_ASE_f()
+    AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
+end
+function eam_my_f()
+    calculate_forces(eam, molly_system, neighbors_all)
+end
+
+eam_ASE_f()
+eam_my_f()
+n_repeat = 10
+t0 = time()
+E_ASE = repeat(eam_ASE_f, n_repeat)
+t1 = time()
+E_ASE = repeat(eam_my_f, n_repeat)
+t2 = time()
+
+println("time/atom/step by ASE EAM calculator: ", (t1-t0)/n_repeat/length(molly_system.atoms), " seconds")
+println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_system.atoms), " seconds")
 ```
 
 Outputs
 
 ```
 Calculating potential energy using ASE EAM calculator
-  0.049684 seconds (1.43 M allocations: 66.706 MiB)
+  0.095757 seconds (1.43 M allocations: 66.707 MiB, 40.00% gc time)
 Calculating potential energy using my EAM calculator
-  0.023109 seconds (162.72 k allocations: 17.463 MiB)
+  0.018727 seconds (28.82 k allocations: 13.442 MiB)
 ASE EAM calculator: -3.187108e+04 eV
 My EAM calculator: -3.187108e+04 eV
-Difference: 7.275958e-12 eV
+Difference: 1.091394e-11 eV
+time/atom/step by ASE EAM calculator: 5.454806508701079e-6 seconds
+time/atom/step by my EAM calculator: 1.814375071708839e-6 seconds
 
 Calculating forces using ASE EAM calculator
-  0.057532 seconds (1.43 M allocations: 67.147 MiB, 14.76% gc time)
+  0.054424 seconds (1.43 M allocations: 67.147 MiB)
 Calculating forces using My EAM calculator
-  0.609485 seconds (19.73 M allocations: 1.187 GiB, 15.94% gc time)
+  0.064482 seconds (86.47 k allocations: 45.297 MiB, 32.60% gc time)
 Sum of forces by ASE EAM calculator: [-2.368150e-12 -2.400567e-12 2.278473e-14] eV/Å
-Sum of forces by my EAM calculator: [-3.226586e-16 6.302250e-15 -1.188806e-14] eV/Å
-Max force error: 2.002796e-12 eV/Å
+Sum of forces by my EAM calculator: [6.916488e-14 -9.799304e-15 2.103179e-14] eV/Å
+Max force error: 1.862710e-06 eV/Å
+time/atom/step by ASE EAM calculator: 5.626415240368537e-6 seconds
+time/atom/step by my EAM calculator: 4.600748495811746e-6 seconds
 ```
