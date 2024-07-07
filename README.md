@@ -183,9 +183,7 @@ function eam_ASE_f()
     AtomsCalculators.forces(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal)
 end
 function eam_my_f()
-    calculate_forces(e
-
-am, molly_system, neighbors_all)
+    calculate_forces(eam, molly_system, neighbors_all)
 end
 
 eam_ASE_f()
@@ -224,3 +222,5 @@ Max force error: 1.862710e-06 eV/Å
 time/atom/step by ASE EAM calculator: 5.650160250819211e-6 seconds
 time/atom/step by my EAM calculator: 4.7440777693101735e-6 seconds
 ```
+
+Tested on an AMD EPYC 9334 2.7 GHz CPU. For reference, the serial LAMMPS EAM calculator takes 1.85e-6 CPU seconds per atom per step for energy calculation on 3.47 GHz Intel Xeon processors.
