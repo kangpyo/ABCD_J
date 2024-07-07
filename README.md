@@ -74,9 +74,14 @@ colors = [index < length(molly_system.coords) ? color_0 : color_1 for (index, va
 visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
 ```
 
+![PE](https://github.com/ch-tung/ABCD_J/blob/main/PE_steps.png?raw=true)
+Penalty energy can gradually push the configuration out of its initial energy minimum. The potential energy gradually saturating before a steep drop. Once passing the saddle point, the penalty term essentially becomes zero. The unreasonable results for steps over 700 were due to incorrect penalty force calculations in PBC, which are easy to fix.
+
 ---
 
 ### `test_JuliaEAM.ipynb`: Calculating EAM interactions using Julia
+
+![JuliaEAM](https://github.com/ch-tung/ABCD_J/blob/389a2293c5a2f5351905167a624ee9843e1ae479/JuliaEAM.png?raw=true)
 
 #### Read the potential data from a file and populate the fields of the `calculator` object
 
