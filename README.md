@@ -10,75 +10,6 @@ This project incorporates Julia into a new metadynamics molecular simulation pro
 
 ---
 
-### `test_ABC.ipynb`: Defining a custom ABC simulator function
-
-![ABC](https://github.com/ch-tung/ABCD_J/blob/7fe5081cf97966e08ad64c2363283cd5736bd206/ABC.png?raw=true)
-
-#### Constructor for ABCSimulator
-
-```julia
-ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01*u"nm", tol=1e-10*u"kg*m*s^-2", log_stream=devnull)
-```
-
-**Arguments:**
-- `sigma`: The value of sigma in units of nm.
-- `W`: The value of W in units of eV.
-- `max_steps`: The maximum number of steps for the simulator.
-- `max_steps_minimize`: The maximum number of steps for the minimizer.
-- `step_size_minimize`: The step size for the minimizer in units of nm.
-- `tol`: The tolerance for convergence in units of kg\*m\*s^-2.
-- `log_stream`: The stream to log the output.
-
-#### Simulates the system using the `ABCSimulator`
-
-```julia
-simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
-```
-
-**Arguments:**
-- `sys`: The system to be simulated.
-- `sim`: An instance of the ABCSimulator.
-- `n_threads`: The number of threads to use for parallel execution. Defaults to the number of available threads.
-- `frozen_atoms`: A list of atoms that should be frozen during the simulation.
-- `run_loggers`: A boolean indicating whether to run the loggers during the simulation.
-- `fname`: The name of the output file.
-
-**Example:**
-
-```julia
-molly_system = initialize_system()
-
-# 1. Start from an energy minimum
-simulator = SteepestDescentMinimizer(step_size=1e-3*u"nm", tol=1e-12*u"kg*m*s^-2", log_stream=devnull)
-Molly.simulate!(molly_system, simulator)
-atoms_ase_sim = convert_ase_custom(molly_system)
-println(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal))
-
-# 2. Specify the atoms to be frozen
-z_coords = [coords[3] for coords in molly_system.coords]
-frozen_atoms = [index for (index, z_coord) in enumerate(z_coords) if z_coord < al_LatConst*2.9*0.1*u"nm"]
-println(length(frozen_atoms))
-
-# 3. Run ABCSimulator
-sigma = 2e-3
-W = 0.1
-@printf("sigma = %e nm/dof^1/2\n W = %e eV", ustrip(sigma), ustrip(W))
-simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=100, max_steps_minimize=60, step_size_minimize=1.5e-3*u"nm", tol=1e-12*u"kg*m*s^-2")
-simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
-
-# 4. Visualize
-using GLMakie
-color_0 = :blue
-color_1 = :red
-colors = [index < length(molly_system.coords) ? color_0 : color_1 for (index, value) in enumerate(molly_system.coords)]
-visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
-```
-
-![PE](https://github.com/ch-tung/ABCD_J/blob/main/PE_steps.png?raw=true)
-Penalty energy can gradually push the configuration out of its initial energy minimum. The potential energy gradually saturating before a steep drop. Once passing the saddle point, the penalty term essentially becomes zero. The unreasonable results for steps over 700 were due to incorrect penalty force calculations in PBC, which are easy to fix.
-
----
-
 ### `test_JuliaEAM.ipynb`: Calculating EAM interactions using Julia
 
 ![JuliaEAM](https://github.com/ch-tung/ABCD_J/blob/389a2293c5a2f5351905167a624ee9843e1ae479/JuliaEAM.png?raw=true)
@@ -224,3 +155,73 @@ time/atom/step by my EAM calculator: 4.7440777693101735e-6 seconds
 ```
 
 Tested on an AMD EPYC 9334 2.7 GHz CPU. For reference, the serial LAMMPS EAM calculator takes 1.85e-6 CPU seconds per atom per step for energy calculation on 3.47 GHz Intel Xeon processors.
+
+---
+
+### `test_ABC.ipynb`: Defining a custom ABC simulator function
+
+![ABC](https://github.com/ch-tung/ABCD_J/blob/7fe5081cf97966e08ad64c2363283cd5736bd206/ABC.png?raw=true)
+
+#### Constructor for ABCSimulator
+
+```julia
+ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01*u"nm", tol=1e-10*u"kg*m*s^-2", log_stream=devnull)
+```
+
+**Arguments:**
+- `sigma`: The value of sigma in units of nm.
+- `W`: The value of W in units of eV.
+- `max_steps`: The maximum number of steps for the simulator.
+- `max_steps_minimize`: The maximum number of steps for the minimizer.
+- `step_size_minimize`: The step size for the minimizer in units of nm.
+- `tol`: The tolerance for convergence in units of kg\*m\*s^-2.
+- `log_stream`: The stream to log the output.
+
+#### Simulates the system using the `ABCSimulator`
+
+```julia
+simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
+```
+
+**Arguments:**
+- `sys`: The system to be simulated.
+- `sim`: An instance of the ABCSimulator.
+- `n_threads`: The number of threads to use for parallel execution. Defaults to the number of available threads.
+- `frozen_atoms`: A list of atoms that should be frozen during the simulation.
+- `run_loggers`: A boolean indicating whether to run the loggers during the simulation.
+- `fname`: The name of the output file.
+
+**Example:**
+
+```julia
+molly_system = initialize_system()
+
+# 1. Start from an energy minimum
+simulator = SteepestDescentMinimizer(step_size=1e-3*u"nm", tol=1e-12*u"kg*m*s^-2", log_stream=devnull)
+Molly.simulate!(molly_system, simulator)
+atoms_ase_sim = convert_ase_custom(molly_system)
+println(AtomsCalculators.potential_energy(pyconvert(AbstractSystem, atoms_ase_sim), eam_cal))
+
+# 2. Specify the atoms to be frozen
+z_coords = [coords[3] for coords in molly_system.coords]
+frozen_atoms = [index for (index, z_coord) in enumerate(z_coords) if z_coord < al_LatConst*2.9*0.1*u"nm"]
+println(length(frozen_atoms))
+
+# 3. Run ABCSimulator
+sigma = 2e-3
+W = 0.1
+@printf("sigma = %e nm/dof^1/2\n W = %e eV", ustrip(sigma), ustrip(W))
+simulator = ABCSimulator(sigma=sigma*u"nm", W=W*u"eV", max_steps=100, max_steps_minimize=60, step_size_minimize=1.5e-3*u"nm", tol=1e-12*u"kg*m*s^-2")
+simulate!(molly_system, simulator, n_threads=1, fname="output_test.txt", frozen_atoms=frozen_atoms)
+
+# 4. Visualize
+using GLMakie
+color_0 = :blue
+color_1 = :red
+colors = [index < length(molly_system.coords) ? color_0 : color_1 for (index, value) in enumerate(molly_system.coords)]
+visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
+```
+
+![PE](https://github.com/ch-tung/ABCD_J/blob/main/PE_steps.png?raw=true)
+Penalty energy can gradually push the configuration out of its initial energy minimum. The potential energy gradually saturating before a steep drop. Once passing the saddle point, the penalty term essentially becomes zero. The unreasonable results for steps over 700 were due to incorrect penalty force calculations in PBC, which are easy to fix.
+
