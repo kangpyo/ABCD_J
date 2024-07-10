@@ -1,6 +1,12 @@
-# [ABCD_J: Autonomous Basin Climbing Dynamics in Julia](https://github.com/ch-tung/ABCD_J.git)
+# [ABCD\_J: Autonomous Basin Climbing Dynamics in Julia](https://github.com/ch-tung/ABCD_J.git)
 
 This project incorporates Julia into a new metadynamics molecular simulation program. The simulation framework is developed using the Julia packages [Molly.jl](https://github.com/JuliaMolSim/Molly.jl), [AtomsBase.jl](https://github.com/JuliaMolSim/AtomsBase.jl), and [AtomsCalculators.jl](https://github.com/JuliaMolSim/AtomsCalculators.jl).
+
+## `src/`: Julia sourcecodes
+
+### `juliaEAM.jl`: Pure julia based EAM calculator.
+
+---
 
 ## `EAM/`: Incorporating the EAM forcefield to benchmark the Al adatom toy model
 
@@ -16,45 +22,50 @@ This project incorporates Julia into a new metadynamics molecular simulation pro
 
 #### Read the potential data from a file and populate the fields of the `calculator` object
 
-```julia
+```
 read_potential!(calculator::EAM, fd::String)
 ```
 
 **Arguments:**
-- `calculator`: The EAM calculator object to populate with potential data.
-- `fd`: The file path to the potential data file.
+
+*   `calculator`: The EAM calculator object to populate with potential data.
+*   `fd`: The file path to the potential data file.
 
 #### Calculate the total energy of a system using the Embedded Atom Method (EAM)
 
-```julia
+```
 calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 ```
 
 **Arguments:**
-- `eam`: The EAM potential parameters.
-- `sys`: The system object containing atom coordinates and types.
-- `neighbors_all`: A precomputed list of neighbors for each atom.
+
+*   `eam`: The EAM potential parameters.
+*   `sys`: The system object containing atom coordinates and types.
+*   `neighbors_all`: A precomputed list of neighbors for each atom.
 
 **Returns:**
-- `energy`: The total energy of the system in electron volts (eV).
+
+*   `energy`: The total energy of the system in electron volts (eV).
 
 #### Calculate the forces on particles in a molecular system using the Embedded Atom Method (EAM)
 
-```julia
+```
 calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
 ```
 
 **Arguments:**
-- `eam`: An instance of the EAM potential.
-- `sys`: The molecular system.
-- `neighbors_all`: A precomputed list of neighbors for each atom.
+
+*   `eam`: An instance of the EAM potential.
+*   `sys`: The molecular system.
+*   `neighbors_all`: A precomputed list of neighbors for each atom.
 
 **Returns:**
-- `forces_particle`: A matrix containing the forces on each particle in the system.
+
+*   `forces_particle`: A matrix containing the forces on each particle in the system.
 
 **Example:**
 
-```julia
+```
 # 1. Read potential
 eam = EAM()
 fname = "Al99.eam.alloy"
@@ -158,42 +169,55 @@ Tested on an AMD EPYC 9334 2.7 GHz CPU. For reference, the serial LAMMPS EAM cal
 
 ---
 
+### `test_ABC_J.ipynb`: The pure Julia based ABC simulator function, calls `/src/juliaEAM.jl` for evaluating the EAM interaction
+
+Updates: 
+
+*   Using momentum gradient descent algorithm for structural relaxation
+*   Pre-evaluating the gradient of gaussian penalty
+*   Truncating the penalty function
+*   Setting intervals between neighbor list identification for improved efficiency
+
+---
+
 ### `test_ABC.ipynb`: Defining a custom ABC simulator function
 
 ![ABC](https://github.com/ch-tung/ABCD_J/blob/7fe5081cf97966e08ad64c2363283cd5736bd206/ABC.png?raw=true)
 
 #### Constructor for ABCSimulator
 
-```julia
+```
 ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01*u"nm", tol=1e-10*u"kg*m*s^-2", log_stream=devnull)
 ```
 
 **Arguments:**
-- `sigma`: The value of sigma in units of nm.
-- `W`: The value of W in units of eV.
-- `max_steps`: The maximum number of steps for the simulator.
-- `max_steps_minimize`: The maximum number of steps for the minimizer.
-- `step_size_minimize`: The step size for the minimizer in units of nm.
-- `tol`: The tolerance for convergence in units of kg\*m\*s^-2.
-- `log_stream`: The stream to log the output.
+
+*   `sigma`: The value of sigma in units of nm.
+*   `W`: The value of W in units of eV.
+*   `max_steps`: The maximum number of steps for the simulator.
+*   `max_steps_minimize`: The maximum number of steps for the minimizer.
+*   `step_size_minimize`: The step size for the minimizer in units of nm.
+*   `tol`: The tolerance for convergence in units of kg\*m\*s^-2.
+*   `log_stream`: The stream to log the output.
 
 #### Simulates the system using the `ABCSimulator`
 
-```julia
+```
 simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
 ```
 
 **Arguments:**
-- `sys`: The system to be simulated.
-- `sim`: An instance of the ABCSimulator.
-- `n_threads`: The number of threads to use for parallel execution. Defaults to the number of available threads.
-- `frozen_atoms`: A list of atoms that should be frozen during the simulation.
-- `run_loggers`: A boolean indicating whether to run the loggers during the simulation.
-- `fname`: The name of the output file.
+
+*   `sys`: The system to be simulated.
+*   `sim`: An instance of the ABCSimulator.
+*   `n_threads`: The number of threads to use for parallel execution. Defaults to the number of available threads.
+*   `frozen_atoms`: A list of atoms that should be frozen during the simulation.
+*   `run_loggers`: A boolean indicating whether to run the loggers during the simulation.
+*   `fname`: The name of the output file.
 
 **Example:**
 
-```julia
+```
 molly_system = initialize_system()
 
 # 1. Start from an energy minimum
@@ -222,6 +246,5 @@ colors = [index < length(molly_system.coords) ? color_0 : color_1 for (index, va
 visualize(molly_system.loggers.coords, boundary_condition, "test.mp4", markersize=0.1, color=colors)
 ```
 
-![PE](https://github.com/ch-tung/ABCD_J/blob/main/PE_steps.png?raw=true)
+![PE](https://github.com/ch-tung/ABCD_J/blob/main/PE_steps.png?raw=true)  
 Penalty energy can gradually push the configuration out of its initial energy minimum. The potential energy gradually saturating before a steep drop. Once passing the saddle point, the penalty term essentially becomes zero. The unreasonable results for steps over 700 were due to incorrect penalty force calculations in PBC, which are easy to fix.
-
