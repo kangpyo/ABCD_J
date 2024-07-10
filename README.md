@@ -6,23 +6,9 @@ This project incorporates Julia into a new metadynamics molecular simulation pro
 
 ### `juliaEAM.jl`: Pure julia based EAM calculator.
 
----
-
-## `EAM/`: Incorporating the EAM forcefield to benchmark the Al adatom toy model
-
-### `test_minimize.ipynb`: Integrating the EAM forcefield for metallic element interactions from the Python [ASE](https://gitlab.com/ase/ase) package into the Molly system/simulator framework
-
-![EAM](https://github.com/ch-tung/ABCD_J/blob/d94d2efdf2ac7988aea6161c3682c5a385521688/EAM.png?raw=true)
-
----
-
-### `test_JuliaEAM.ipynb`: Calculating EAM interactions using Julia
-
-![JuliaEAM](https://github.com/ch-tung/ABCD_J/blob/389a2293c5a2f5351905167a624ee9843e1ae479/JuliaEAM.png?raw=true)
-
 #### Read the potential data from a file and populate the fields of the `calculator` object
 
-```
+```julia
 read_potential!(calculator::EAM, fd::String)
 ```
 
@@ -33,7 +19,7 @@ read_potential!(calculator::EAM, fd::String)
 
 #### Calculate the total energy of a system using the Embedded Atom Method (EAM)
 
-```
+```julia
 calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 ```
 
@@ -49,7 +35,7 @@ calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 
 #### Calculate the forces on particles in a molecular system using the Embedded Atom Method (EAM)
 
-```
+```julia
 calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
 ```
 
@@ -65,7 +51,9 @@ calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
 
 **Example:**
 
-```
+```julia
+include("src/JuliaEAM.jl")
+
 # 1. Read potential
 eam = EAM()
 fname = "Al99.eam.alloy"
@@ -143,7 +131,7 @@ println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_s
 
 **Outputs:**
 
-```
+```julia
 Calculating potential energy using ASE EAM calculator
   0.095757 seconds (1.43 M allocations: 66.707 MiB, 40.00% gc time)
 Calculating potential energy using my EAM calculator
@@ -169,6 +157,20 @@ Tested on an AMD EPYC 9334 2.7 GHz CPU. For reference, the serial LAMMPS EAM cal
 
 ---
 
+## `EAM/`: Incorporating the EAM forcefield to benchmark the Al adatom toy model
+
+### `test_minimize.ipynb`: Integrating the EAM forcefield for metallic element interactions from the Python [ASE](https://gitlab.com/ase/ase) package into the Molly system/simulator framework
+
+![EAM](https://github.com/ch-tung/ABCD_J/blob/d94d2efdf2ac7988aea6161c3682c5a385521688/EAM.png?raw=true)
+
+---
+
+### `test_JuliaEAM.ipynb`: Calculating EAM interactions using Julia
+
+![JuliaEAM](https://github.com/ch-tung/ABCD_J/blob/389a2293c5a2f5351905167a624ee9843e1ae479/JuliaEAM.png?raw=true)
+
+---
+
 ### `test_ABC_J.ipynb`: The pure Julia based ABC simulator function, calls `/src/juliaEAM.jl` for evaluating the EAM interaction
 
 Updates: 
@@ -186,7 +188,7 @@ Updates: 
 
 #### Constructor for ABCSimulator
 
-```
+```julia
 ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize=100, step_size_minimize=0.01*u"nm", tol=1e-10*u"kg*m*s^-2", log_stream=devnull)
 ```
 
@@ -202,7 +204,7 @@ ABCSimulator(; sigma=0.01*u"nm", W=1e-2*u"eV", max_steps=100, max_steps_minimize
 
 #### Simulates the system using the `ABCSimulator`
 
-```
+```julia
 simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_atoms=[], run_loggers=true, fname="output.txt")
 ```
 
@@ -217,7 +219,7 @@ simulate!(sys, sim::ABCSimulator; n_threads::Integer=Threads.nthreads(), frozen_
 
 **Example:**
 
-```
+```julia
 molly_system = initialize_system()
 
 # 1. Start from an energy minimum
