@@ -33,7 +33,7 @@ calculate_energy(eam::EAM, sys::Molly.System, neighbors_all)
 
 *   `energy`: The total energy of the system in electron volts (eV).
 
-#### Calculate the forces on particles in a molecular system using the Embedded Atom Method (EAM)
+#### Calculate the forces on particles using the Embedded Atom Method (EAM)
 
 ```julia
 calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
