@@ -131,7 +131,7 @@ println("time/atom/step by my EAM calculator: ", (t2-t1)/n_repeat/length(molly_s
 
 **Outputs:**
 
-```julia
+```bash
 Calculating potential energy using ASE EAM calculator
   0.095757 seconds (1.43 M allocations: 66.707 MiB, 40.00% gc time)
 Calculating potential energy using my EAM calculator
@@ -153,7 +153,7 @@ time/atom/step by ASE EAM calculator: 5.650160250819211e-6 seconds
 time/atom/step by my EAM calculator: 4.7440777693101735e-6 seconds
 ```
 
-Tested on an AMD EPYC 9334 2.7 GHz CPU. For reference, the serial LAMMPS EAM calculator takes 1.85e-6 CPU seconds per atom per step for energy calculation on 3.47 GHz Intel Xeon processors.
+Tested on an AMD EPYC 9334 2.7 GHz CPU on `analysis.sns.gov` cluster. For reference, the serial LAMMPS EAM calculator takes 1.85e-6 CPU seconds per atom per step for energy calculation on 3.47 GHz Intel Xeon processors. ([reference](frozen_atoms))
 
 ---
 
@@ -177,8 +177,9 @@ Updates: 
 
 *   Using momentum gradient descent algorithm for structural relaxation
 *   Pre-evaluating the gradient of gaussian penalty
-*   Truncating the penalty function
+*   Truncating the penalty function to $3 \sigma$
 *   Setting intervals between neighbor list identification for improved efficiency
+*   Pushing the system slightly before minimization to prevent trapping on flat top PEL
 
 ---
 
