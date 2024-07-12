@@ -47,7 +47,7 @@ calculate_forces(eam::EAM, sys::Molly.System, neighbors_all)
 
 **Returns:**
 
-*   `forces_particle`: A matrix containing the forces on each particle in the system.
+*   `forces_particle`: An array of Svector containing the forces on each particle in the system.
 
 **Example:**
 
